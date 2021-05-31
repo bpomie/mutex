@@ -1,0 +1,292 @@
+---
+title: "Twelve-month-olds disambiguate new words using mutual exclusivity"
+author: Basia Pomiechowska
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+  word_document:
+    toc: yes
+---
+
+# Load packages and data
+
+Load packages.
+```{r message=FALSE, warning=FALSE, , paged.print=FALSE, include=FALSE}
+library(readxl)
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+
+library(plyr)
+library(emmeans) 
+library(afex)
+library(sjstats)
+```
+
+Load data.
+
+```{r include=FALSE}
+dataHighlighting <- read_excel("data/data_PLF_highlighting.xlsx",sheet="PLF")
+```
+
+# Data structure
+
+data_PLF_highlighting.xlsx contains:
+
+* $Experiment$         -- Experiment 1, Experiment 2
+
+* $ID$                 -- unique ID identifying each 
+participant
+
+* $Experimental_ H$     -- average PLF during highlighting in the 
+experimental conditions
+
+* $Control_ H$          -- average PLF during highlighting in the control conditions
+
+* $Order$              -- order of block presentation (experimental condition first v. experimental condition second)
+
+
+
+data_PLF_highlighting.xlsx contains:
+
+* `Experiment` -- Experiment 1, Experiment 2
+
+* `ID` -- unique ID identifying each participant
+
+* `Experimental_H`-- average PLF during highlighting in the 
+experimental conditions
+
+* `Control_H` -- average PLF during highlighting in the control conditions
+
+* `Order` -- order of block presentation (experimental condition first v. experimental condition second)
+
+# Experiment 1
+
+## Supplementary analysis
+
+This analysis looks at the proportion of looking at the familiar object (PLF) during highlighting.
+
+Gather data into long format.
+
+```{r include=FALSE}
+#Gather the columns into long format
+e1_highlighting <- dataHighlighting %>%
+  filter(Experiment == "Experiment 1") 
+```
+
+```{r include=FALSE}
+e1_highlighting_long <- e1_highlighting %>%
+  gather(key="Condition", value="PLF_H", c("Experimental_H","Control_H"))
+
+#Convert Time as factor
+e1_highlighting_long$Condition <- factor(e1_highlighting_long$Condition,
+                  levels = c("Experimental_H","Control_H"),
+                  labels = c("Experimental","Control"))
+```
+
+
+#### Descriptive statistics
+Compute the summary descriptive statistics.
+```{r echo=FALSE}
+e1_highlighting_long %>%
+  group_by(Condition) %>%
+  get_summary_stats(PLF_H,type = "mean_sd")
+```
+
+#### Normality
+
+Perform the Shapiro-Wilk test of normality with word x condition x order.
+
+```{r echo=FALSE}
+#Normality
+e1_highlighting_long %>%
+  group_by(Condition) %>%
+  shapiro_test(PLF_H)
+```
+
+#### Comparison btwn highlighting conditions
+
+This comparison was carried using a paired-samples t test.
+
+```{r echo=FALSE}
+t.test(e1_highlighting$Control_H, e1_highlighting$Experimental_H, paired = TRUE)
+```
+
+```{r}
+cohensD(e1_highlighting$Control_H, e1_highlighting$Experimental_H, method = "paired")
+```
+
+#### Figure
+
+```{r echo=FALSE}
+
+m <- stat_summary(geom ="point", fun.y=mean, shape=18, size=4, color="blue", fill="blue", 
+                  position = position_dodge(width = 0.75)) 
+
+h1 <- ggplot(data = e1_highlighting_long, aes(x=Condition, y=PLF_H)) +
+  theme_light() +
+  geom_boxplot(outlier.size = -1, fill = "gray95", size = .25, width = .4) +
+  geom_jitter(color="gray50",position = position_jitter(.1), size = 1.55) +
+  theme(strip.text = element_text(size = 16),
+        plot.title = element_text(size = 24),        
+        panel.grid.minor.y = element_blank(),
+                panel.grid.major.x = element_blank(),
+                legend.position="none",
+                axis.text.x =element_text(size=20),
+                axis.text.y =element_text(size=20),
+                axis.title.y=element_blank(),
+                axis.title.x = element_blank()) +
+  geom_hline(yintercept = .5, size = .15, linetype = "dashed") +
+  scale_y_continuous(name="PLF", limits=c(.3, 1.05), breaks = c(.5,.75,1)) +
+  ggtitle("Experiment 1") +
+    stat_summary(fun.data = mean_se, fill="yellow", color = "black", shape=23, size = 1.75)
+
+h1
+```
+
+
+#### Comparisons to chance
+
+We used one-sample t tests, mu = 0.50.
+
+```{r echo=FALSE}
+t.test(e1_highlighting$Experimental_H, mu = .5, alternative = "two.sided")
+t.test(e1_highlighting$Control_H, mu = .5, alternative = "two.sided")
+```
+
+```{r}
+cohensD(e1_highlighting$Experimental_H, mu = .5)
+cohensD(e1_highlighting$Control_H, mu = .5)
+```
+
+
+
+# Experiment 2
+
+# Supplementary analysis
+
+This analysis looks at the proportion of looking at the familiar object during highlighting.
+
+Prepare the data.
+```{r include=FALSE}
+#Gather the columns into long format
+e2_highlighting <- dataHighlighting %>%
+  filter(Experiment == "Experiment 2") 
+```
+
+```{r include=FALSE}
+e2_highlighting_long <- e2_highlighting %>%
+  gather(key="Condition", value="PLF_H", c("Experimental_H","Control_H"))
+
+#Convert Time as factor
+e2_highlighting_long$Condition <- factor(e2_highlighting_long$Condition,
+                  levels = c("Experimental_H","Control_H"),
+                  labels = c("Experimental","Control"))
+```
+
+
+#### Descriptive statistics
+Compute the summary descriptive statistics.
+```{r echo=FALSE}
+e2_highlighting_long %>%
+  group_by(Condition) %>%
+  get_summary_stats(PLF_H,type = "mean_sd")
+```
+
+#### Normality
+
+Perform the Shapiro-Wilk test of normality with word x condition x order.
+
+```{r echo=FALSE}
+#Normality
+e2_highlighting_long %>%
+  group_by(Condition) %>%
+  shapiro_test(PLF_H)
+```
+
+```{r echo=FALSE, warning=FALSE}
+p <- gghistogram(e2_highlighting_long, x = "PLF_H",
+                 ggtheme = theme_pubclean(),
+                 add = "mean", rug = TRUE, bins = "8",
+                 alpha = .2,
+                 palette = c("#00AFBB", "#E7B800"),
+                 xlab = "Difference Score") +
+          facet_grid( ~ Condition, labeller = "label_both")
+
+p + 
+  font("x.text", size = 6.5) 
+```
+
+#### ANOVAs
+##### Condition x order
+```{r echo=FALSE, warning=FALSE}
+#Run the analysis
+a2horder <- aov_car(PLF_H ~ Condition*Order + Error(Id/Condition) + Order, 
+                   data = e2_highlighting_long)
+#Display the results
+summary(a2horder)
+```
+#### Figure
+```{r echo=FALSE}
+m <- stat_summary(geom ="point", fun.y=mean, shape=18, size=4, color="blue", fill="blue", 
+                  position = position_dodge(width = 0.75)) 
+
+h2 <- ggplot(data = e2_highlighting_long, aes(x=Condition, y=PLF_H)) +
+  theme_light(
+  ) +
+  geom_boxplot(outlier.size = -1, fill = "gray95", size = .25, width = .4) +
+  geom_jitter(color="gray50",position = position_jitter(.1), size = 1.55) +
+  theme(strip.text = element_text(size = 16),
+                plot.title = element_text(size = 24),
+                panel.grid.minor.y = element_blank(),
+                panel.grid.major.x = element_blank(),
+                legend.position="none",
+                axis.text.x =element_text(size=20),
+                axis.text.y =element_text(size=18, color="white"),
+                axis.title.y=element_blank(), #element_text(size=14,face="bold"),
+                axis.title.x = element_blank()) +
+  geom_hline(yintercept = .5, size = .15, linetype = "dashed") +
+  scale_y_continuous(name="PLF", limits=c(.3, 1.05), breaks = c(.5,.75,1)) +  
+  ggtitle("Experiment 2") +
+  stat_summary(fun.data = mean_se, fill="yellow", color = "black", shape=23, size = 1.75)
+  #m
+
+h2
+
+```
+
+#### Comparision btw highlighting conditions
+
+```{r echo=FALSE}
+wilcox.test(e2_highlighting$Control_H, e2_highlighting$Experimental_H, paired = TRUE)
+```
+
+
+##### Comparisons to chance
+
+Experimental condition.
+```{r echo=FALSE}
+t.test(e2_highlighting$Experimental_H, mu = .5, alternative = "two.sided")
+```
+Control condition.
+```{r}
+wilcox.test(e2_highlighting$Control_H, mu = 0.5, alternative = "two.sided")
+```
+
+
+# Summary figures
+s
+```{r echo=FALSE}
+fig <- ggarrange(h1, h2,
+          ncol = 2, widths = c(1,1),
+          #labels = c("A", "B"),
+          common.legend = TRUE, legend = "bottom")
+
+annotate_figure(fig,
+                left = text_grob("PLF", color = "black", rot = 90,
+                                 face = "bold", size = 24))
+
+ggsave("plots/figure3h.png", plot = last_plot(), width = 32/1.5, height = 28/1.5, units = c("cm"))
+```
+

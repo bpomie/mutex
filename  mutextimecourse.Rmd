@@ -1,0 +1,249 @@
+---
+title: "MUTEX Twelve-month-olds disambiguate new words using mutual exclusivity"
+author: Basia Pomiechowska
+output: html_document
+---
+
+`data/dataindividual` contains individual participants' data. 
+
+Note that different eye trackers were used acress experiments (E1: TOBII TX 300, E2: TOBII T60XL), resulting in different sampling frequencies (E1: 120 Hz; E2: 60 Hz). For plotting purposes, the data from Experiment 1 where downsampled by a factor of 2.
+
+Each data file has the following structure:
+
+$id$ - unique ID identifying each participant
+
+$condition$ - highlighting condition (experimental v. control)
+
+$word$ - word heard at test (familiar v. novel)
+
+$trial$ - unique trial ID within each labeling condition (1 to 4)
+
+$phase$ - test phase (baseline v. test)
+
+$timesample$ - sample number within each phase
+
+$aoifam$ - aoi hits recorded in the familiar object AOI
+
+$aoiunfam$ - aoi hits recorded in the unfamiliar object AOI
+
+Libraries and set up.
+
+```{r message=FALSE, warning=FALSE, , paged.print=FALSE, include=FALSE}
+library(readxl)
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+```
+
+Read in individual data from data/participants.
+```{r include=FALSE}
+# Set the path
+setwd("~/Documents/GitHub/mutex/data/dataindividual/")
+
+#Get file names of individual data files
+my_files <- list.files(pattern = "xlsx$")
+
+#Loop through participants; add individual data sets to the summary data frame
+results <- data.frame()
+for (i in 1:length(my_files)) {
+  print(my_files[i])
+  aux <- read_excel(my_files[i])
+  results <- rbind(results,aux)
+}
+
+rm(aux)
+
+results$phase <- factor(results$phase)
+results$condition <- factor(results$condition, levels = c("experimental", "control"),
+                            labels = c("Experimental", "Control"))
+```
+
+Add experiment and order.
+```{r}
+results <- results %>%
+  mutate(exp = ifelse(id < 21,"Experiment 1", "Experiment 2")) %>%
+  mutate(order = ifelse((id <= 10 | (id >= 21 & id <= 30)), "Experimental first", "Experimental second"))
+```
+
+Compute time course of plftest.
+```{r}
+results$timeplf <- results$aoifam/(results$aoifam+results$aoiunfam)
+```
+
+# Average
+
+Derive PLF at test.
+
+```{r}
+auxmean <- results %>%
+  group_by(exp, order, id, condition, word, phase, trial, trialid) %>%
+  summarize(sumfam = sum(aoifam, na.rm = TRUE), 
+            sumdist = sum(aoiunfam, na.rm = TRUE),
+            .groups = "keep") %>%
+  mutate(plf = sumfam/(sumfam+sumdist)) %>%
+  mutate(totalhits = sumfam+sumdist) #new
+```
+
+Corrplf.
+
+```{r}
+corrplf <- auxmean %>%
+  select(exp, order, id, condition, word, phase, trial, trialid, plf) %>%
+  pivot_wider(names_from = "phase", 
+                    values_from = c("plf"), 
+                    values_fn = unique) %>%
+  mutate(corrplf = test-baseline)
+```
+
+Save the summary data.
+```{r}
+library(openxlsx)
+write.xlsx(corrplf, "data/data_test.xlsx", sheetName = "data")
+```
+
+# Baseline correction
+
+merge(resultsall, randomize, by=c("expOrder","trialNumber"))
+
+```{r}
+aux <- corrplf %>% 
+  ungroup(exp,order,id,condition, word, trial) %>%
+  select(id, trialid, baseline, test, corrplf)
+
+results <- merge(results, aux, by = c("id","trialid")) 
+
+results <- results %>%
+  mutate(timecorrplf = timeplf - baseline)
+```
+
+#Figures
+
+```{r}
+#ret
+auxplotindividual <- results %>%
+  filter(phase == "test") %>%
+  group_by(id, condition, word, timesample) %>%
+  summarize(meancorrplf = mean(timecorrplf, na.rm = TRUE), .groups = "keep")
+
+auxplot <- results %>%
+  filter(phase == "test") %>%
+  group_by(exp, condition, word, timesample) %>%
+  get_summary_stats(timecorrplf, type = "mean_se")
+  #summarize(meancorrplf = mean(timecorrplf, na.rm = TRUE), .groups = "keep")
+```
+
+Moving average.
+```{r}
+library(pracma)
+auxplot$meanmove <- movavg(auxplot$mean, 7, type = "s")
+```
+
+```{r}
+library(ggsci)
+aux <- auxplot #%>% filter(condition == "Experimental")
+  
+a <- ggplot(data=aux, aes(x=timesample, y=meanmove, color=word)) +
+  theme_light() +
+          theme(
+            plot.title = element_text(size = 16),
+            plot.subtitle = element_text(size = 10),
+            strip.text = element_text(size = 10),
+                panel.grid.major.y = element_blank(),
+                panel.grid.minor.y = element_blank(),
+                panel.grid.major.x = element_blank(),
+                panel.grid.minor.x = element_blank(),
+                legend.position="bottom",
+                axis.text=element_text(size=10),
+                axis.title.y=element_text(size=14,face="bold"),
+                #axis.title.x = element_blank(),
+                #axis.text.x = element_blank(),
+                axis.ticks.x = element_blank()) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 90, size = .25, linetype = "dashed") +
+  geom_vline(xintercept = 210, size = .25, linetype = "dashed") +
+  geom_line(size = 1) +
+  geom_ribbon(aes(ymin = mean - se, 
+                      ymax = mean + se, 
+                      fill = word), alpha = 0.2, colour = NA) +
+  scale_y_continuous(name="corrPLF", limits=c(-.45, .45), breaks = c(-.4,-.2,0,.2,.4)) +
+  scale_x_continuous(name= "Time (seconds)", breaks = c(1, 60, 120, 180, 240, 300), labels = c("0", "1", "2", "3", "4", "5")) +
+  facet_grid(condition ~ exp, switch = "y") +
+  scale_color_npg() +
+  scale_fill_npg() +
+  theme(
+    strip.background = element_rect(fill="white"),
+    strip.text = element_text(size=12, 
+                              color="black", margin = margin(.25,.15,.25,.15, "cm")),
+    strip.placement = "outside") +
+  ggtitle(label = "Experiments 1-2")
+
+#, subtitle = "Data collapsed across block orders"
+
+a
+```
+
+```{r}
+auxc2 <- results %>%
+  filter(phase == "test" & condition == "Control" & exp == "Experiment 2") %>%
+  group_by(exp, order, condition, word, timesample) %>%
+  get_summary_stats(timecorrplf, type = "mean_se")
+
+auxc2$meanmove <- movavg(auxc2$mean, 7, type = "s")
+```
+
+
+```{r}
+auxc2$order <- factor(auxc2$order, 
+                    levels = c("Experimental second", "Experimental first"),
+                    labels = c("Control in block 1","Control in block 2"))
+```
+
+
+```{r}
+library(ggsci)
+
+b <- ggplot(data=auxc2, aes(x=timesample, y=meanmove, color=word)) +
+  theme_light() +
+          theme(
+            plot.title = element_text(size=16),
+            plot.subtitle = element_text(size = 10),
+            strip.text = element_text(size = 14),
+                panel.grid.major.y = element_blank(),
+                panel.grid.minor.y = element_blank(),
+                panel.grid.major.x = element_blank(),
+                panel.grid.minor.x = element_blank(),
+                legend.position="bottom",
+                axis.text=element_text(size=10),
+                axis.title.y=element_text(size=14,face="bold"),
+                axis.ticks.x = element_blank()) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 90, size = .25, linetype = "dashed") +
+  geom_vline(xintercept = 210, size = .25, linetype = "dashed") +
+  geom_line(size = 1) +
+  geom_ribbon(aes(ymin = mean - se, 
+                      ymax = mean + se, 
+                      fill = word), alpha = 0.2, colour = NA) +
+  scale_y_continuous(name="corrPLF", limits=c(-.4, .6)) +
+  scale_x_continuous(name= "Time (seconds)", breaks = c(1, 60, 120, 180, 240, 300), labels = c("0", "1", "2", "3", "4", "5")) +
+  facet_wrap(. ~ order) +
+  scale_color_npg() +
+  scale_fill_npg() +
+  theme(
+    strip.background = element_rect(fill="white"),
+    strip.text = element_text(size=12, 
+                              color="black", margin = margin(.15,.15,.15,.15, "cm"))) +
+  theme(axis.title.y = element_text(margin = margin(t = 0, r = 25, b = 0, l = 0))) +
+  ggtitle(label = "Experiment 2", subtitle = "Control condition data split by block order")
+
+b
+```
+
+```{r}
+fig <- ggarrange(a,NULL,b, nrow = 3, heights = c(1,.05, .75))
+  
+setwd("~/Documents/GitHub/mutex/plots/")
+
+ggsave("figure5.png", plot = last_plot(), width = 16, height = 20, units = c("cm"))
+```
+
+

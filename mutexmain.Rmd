@@ -1,0 +1,806 @@
+---
+title: "MUTEX Twelve-month-olds disambiguate new words using mutual exclusivity"
+author: Basia Pomiechowska
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+  word_document:
+    toc: yes
+---
+
+# Study structure
+
+The current study consists of two experiments:
+
+**experiment 1 (English):**
+
+_*experimental condition*: familiar object highlighted via **pointing**
+
+_*control condition*: familiar object highlighted via **moving up and down**
+
+**experiment 2 (Hungarian):** 
+
+_*experimental condition*: familiar object highlighted via **pointing**
+
+_*control condition*: familiar object **remains still**
+
+In addition to varying how the familiar object was highlighted, in each experiment we manipulated whether the word uttered after highlighting was the basic-level name of the familiar object or a novel label. 
+
+# Data structure
+
+data_test.xlsx contains:
+
+* `experiment` -- Experiment 1, Experiment 2
+
+* `Id` -- unique ID identifying each participant
+
+* `condition` -- highlighting condition (experimental v. control)
+
+* `word` -- word heard at test (familiar v. novel)
+
+* `trial` -- unique trial ID within each labeling condition (1 to 4)
+
+* `plfbaseline` -- proportion of looking at the familiar object (PLF) at baseline
+
+* `plftest` -- PLF at test
+
+* `order` -- order of block presentation (experimental condition first v. experimental condition second)
+
+# Load packages and data
+
+Load packages.
+```{r message=FALSE, warning=FALSE, , paged.print=FALSE, include=FALSE}
+library(readxl)
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(plyr)
+library(emmeans) 
+library(afex)
+library(sjstats)
+library(lsr)
+library(ggsci)
+```
+
+# Load data
+
+Load data.
+```{r include=FALSE}
+dataTest <- read_excel("data/data_test.xlsx",sheet="data", na = "NaN")
+```
+
+Prepare the dataset.
+```{r}
+#Convert word, Id, experiment, order as factors
+dataTest$word <- factor(dataTest$word, levels = c("Familiar word","Novel word"),
+                          labels = c("Familiar word","Novel word"))
+dataTest$Id <- factor(dataTest$Id)
+dataTest$experiment <- factor(dataTest$experiment)
+dataTest$order <- factor(dataTest$order)
+dataTest$condition <- factor(dataTest$condition, levels = c("Experimental", "Control"))
+```
+
+```{r}
+#Check the data structure
+str(dataTest)
+```
+
+Compute corrPLF.
+```{r}
+dataTest$corrPLF <- dataTest$plftest - dataTest$plfbaseline
+```
+
+# Descriptive statistics
+
+Compute individual averages `corrplf`, `plfbaseline`, `plftest` for each condition.
+```{r}
+dataTestSummary <- dataTest %>%
+  group_by(experiment, Id, order, word, condition) %>%
+  get_summary_stats(plfbaseline, plftest, corrPLF, type = "mean_se")
+```
+
+Rename `variable` as `dv`.
+Convert `dv` as factor.
+```{r}
+colnames(dataTestSummary)[6] <- "dv"
+
+dataTestSummary$dv <- factor(dataTestSummary$dv,
+                             levels = c("plfbaseline", "plftest", "corrPLF"))
+```
+
+Compute the summary descriptive statistics for `corrPLF`, `plfbaseline`, `plftest.`
+```{r echo=FALSE}
+dataTestSummary %>%
+  group_by(experiment,word,condition,dv) %>%
+  get_summary_stats(mean,type = "mean_sd") %>%
+  arrange(desc(dv),experiment,condition)
+```
+
+Compute the summary descriptive statistics for trial numbers.
+```{r}
+dataTestSummary %>%
+  subset(dv == "corrPLF") %>%
+  group_by(experiment,word,condition,dv) %>%
+  get_summary_stats(n,type = "mean_sd") %>%
+  arrange(experiment,condition)
+```
+
+# Main analysis (corrPLF)
+
+## Experiment 1 
+
+Store corrPLF data from Experiment 1 in a separate data frame.
+```{r}
+corrplfe1 <- dataTestSummary %>% 
+  subset(experiment == "Experiment 1" & dv == "corrPLF")
+```
+
+### Normality
+
+Perform the Shapiro-Wilk test of normality with word x condition x order.
+```{r echo=FALSE}
+corrplfe1 %>%
+  group_by(word, condition, order) %>%
+  shapiro_test(mean)
+```
+
+Perform the Shapiro-Wilk test of normality with word x condition.
+```{r echo=FALSE}
+corrplfe1 %>%
+  group_by(word, condition) %>%
+  shapiro_test(mean)
+```
+
+Draw the histograms of the data.
+```{r echo=FALSE, warning=FALSE}
+ph1 <- gghistogram(corrplfe1, x = "mean",
+                 ggtheme = theme_pubclean(),
+                 add = "mean", rug = TRUE, bins = "10",
+                 color = "word", fill = "word", alpha = .2,
+                 palette = c("#00AFBB", "#E7B800"),
+                 xlab = "corrplf") +
+          facet_grid(order ~ condition ~ word, labeller = "label_both")
+
+ph1 + font("x.text", size = 6.5) 
+```
+
+Draw the correlation between the data and the normal distribution.
+```{r echo=FALSE, warning=FALSE}
+ggqqplot(corrplfe1, "mean", ggtheme = theme_pubclean()) +
+          facet_grid(order ~ condition ~ word, labeller = "label_both")
+```
+
+### ANOVAs
+
+#### word x condition x order
+
+A preliminary mixed-model ANOVA on average `corrPLF` data:
+* block order (pointing-first v. pointing-second) as a between-subject factor
+* condition (pointing v. movement) as a within-subject factor
+* word (familiar v. novel) as a within-subject factor
+
+This yields no significant effect of block order or significant interactions with this factor.
+
+Thus, the data were averaged across block order for the further analysis.
+
+```{r echo=FALSE, warning=FALSE}
+#Run the analysis
+a1order <- aov_car(mean ~ word*condition*order + Error(Id/word*condition) + order, 
+                   data = corrplfe1)
+#Display the results
+summary(a1order)
+```
+
+#### word x condition
+
+A repeated-measures ANOVA with condition (pointing v. movement) and word (familiar v. novel) as within-subject factors was fitted to average baseline-corrected PFL. 
+
+```{r echo=FALSE, warning=FALSE}
+#Run the analysis
+a1 <- aov_car(mean ~ word*condition + Error(Id/word*condition), 
+                   data = corrplfe1, anova_table = list(es = "pes"))
+#Display the results
+summary(a1)
+eta_sq(a1, partial = TRUE)
+```
+
+
+### Follow-up tests
+
+#### Comparisons between words (familiar v. novel)
+
+These comparisons are performed using paired-samples t tests.
+
+##### experimental condition
+
+Familiar v. novel words.
+```{r echo=FALSE}
+t.test(mean ~ word, data = corrplfe1 %>% filter(condition == "Experimental"), paired = TRUE)
+cohensD(mean ~ word, data = corrplfe1 %>% filter(condition == "Experimental"), method = "paired")
+```
+
+##### Control condition
+
+Familiar v. novel words.
+```{r echo=FALSE}
+t.test(mean ~ word, corrplfe1 %>% filter(condition == "Control"), paired = TRUE)
+cohensD(mean ~ word, corrplfe1 %>% filter(condition == "Control"), method = "paired")
+```
+
+#### Comparisons to chance
+
+##### Experimental condition
+
+Familiar words.
+
+```{r echo=FALSE}
+aux <- corrplfe1 %>% filter(condition == "Experimental" & word == "Familiar word")
+t.test(aux$mean, mu = 0, alternative = "two.sided")
+cohensD(aux$mean, mu = 0)
+rm(aux)
+```
+
+Novel words.
+```{r echo=FALSE}
+aux <- corrplfe1 %>% filter(condition == "Experimental" & word == "Novel word")
+t.test(aux$mean, mu = 0, alternative = "two.sided")
+cohensD(aux$mean, mu = 0)
+rm(aux)
+```
+
+##### Control condition
+
+Familiar word.
+```{r echo=FALSE}
+aux <- corrplfe1 %>% filter(condition == "Control" & word == "Familiar word")
+t.test(aux$mean, mu = 0, alternative = "two.sided")
+cohensD(aux$mean, mu = 0)
+rm(aux)
+```
+
+Novel word.
+```{r echo=FALSE}
+aux <- corrplfe1 %>% filter(condition == "Control" & word == "Novel word")
+t.test(aux$mean, mu = 0, alternative = "two.sided")
+cohensD(aux$mean, mu = 0)
+rm(aux)
+```
+
+
+### Figures
+
+```{r echo=FALSE}
+corrplfe1$condition <- factor(corrplfe1$condition, levels = c("Experimental", "Control"))
+corrplfe1$id <- factor(corrplfe1$Id)
+
+plotboxe1 <- ggplot(data = corrplfe1,aes(x=word, y=mean, fill = word)) +
+  theme_light() +
+          theme(strip.text = element_text(size = 20),
+                plot.title = element_text(size = 24),
+                panel.grid.minor.y = element_blank(),
+                panel.grid.major.x = element_blank(),
+                legend.position="none",
+                axis.text=element_text(size=20),
+                axis.title.y=element_blank(),
+                axis.title.x = element_blank(),
+                axis.text.x = element_blank(),
+                axis.ticks.x = element_blank()) +
+  geom_hline(yintercept = 0) +
+  geom_boxplot(color="black", width = .4, alpha=1, outlier.shape = NA, lwd = .25) +
+  geom_jitter(color="gray40",position = position_jitterdodge(dodge.width = .15, jitter.width = .1), size = 1.15) +
+  geom_line(aes(group=Id), size = .2, color = "grey") +
+  stat_summary(fun.data = mean_se, fill="yellow", color = "black", shape=23, size = 1.45) +
+  scale_color_npg() +
+  scale_fill_npg() +
+  scale_y_continuous(name="corrPLF", limits=c(-.55, .8)) +
+  facet_grid(. ~ condition, switch =  "both") +
+  theme(
+    strip.background = element_rect(fill="white"),
+    strip.text = element_text(size=20, 
+                              color="grey30", margin = margin(.1,0,0,0, "cm"))) +
+  ggtitle("experiment 1")
+
+plotboxe1
+```
+
+## Experiment 2
+
+Store corrPLF data from experiment 2 in a seperate data frame.
+
+```{r}
+corrplfe2 <- dataTestSummary %>% 
+  subset(experiment == "Experiment 2" & dv == "corrPLF")
+```
+
+### Normality
+
+Perform the Shapiro-Wilk test of normality.
+
+```{r echo=FALSE}
+#Normality
+corrplfe2 %>%
+  group_by(word, condition, order) %>%
+  shapiro_test(mean)
+```
+
+
+
+Draw the histograms of the data.
+
+```{r echo=FALSE, warning=FALSE}
+p <- gghistogram(corrplfe2, x = "mean",
+                 ggtheme = theme_pubclean(),
+                 add = "mean", rug = TRUE, bins = "8",
+                 color = "word", fill = "word", alpha = .2,
+                 palette = c("#00AFBB", "#E7B800"),
+                 xlab = "Difference Score") +
+          facet_grid(order ~ condition ~ word, labeller = "label_both")
+
+p + 
+  font("x.text", size = 6.5) 
+```
+
+
+Draws the correlation between the data and the normal distribution.
+
+```{r echo=FALSE, warning=FALSE}
+ggqqplot(corrplfe2, "mean", ggtheme = theme_pubclean()) +
+          facet_grid(order ~ condition ~ word, labeller = "label_both")
+```
+
+### ANOVA
+
+#### word x condition x order
+
+We first run a  mixed-model ANOVA on average baseline-corrected PFl data with block order (pointing-first v. pointing-second) as a between-subject factor, with condition (pointing v. movement) and word (familiar v. novel) as within-subject factors.
+
+```{r echo=FALSE, warning=FALSE}
+#Run the analysis
+a2order <- aov_car(mean ~ word*condition*order + Error(Id/word*condition) + order, 
+                   data = corrplfe2)
+#Display the results
+summary(a2order)
+#knitr::kable(nice(a2order))
+eta_sq(a2order, partial = TRUE)
+```
+
+
+### Follow-up tests
+
+To resolve the three-way interaction with order, we performed seprate ANOVAs within each highlighting condition. This analysis used word (familiar v. novel) as a within-subject factor and block order (point-first v. point-second) as a between-subject factor.
+
+This interaction was driven by the fact that block order affected differently infants' looking in the remain-still condition, but not in the pointing condition.
+
+#### ANOVA Experimental condition
+
+```{r echo=FALSE}
+#Select the data.
+e2point <- subset(corrplfe2, condition == "Experimental")
+
+#Run the analysis
+a2point <- aov_car(mean ~ word*order + Error(Id/word) + order, 
+                   data = e2point)
+#Display the results
+summary(a2point)
+eta_sq(a2point, partial = TRUE)
+```
+
+#### ANOVA Control condition
+
+There was a significant interaction between word and block order, as well as significant main effects of word and block order. This was due to the fact that infants' only recognized the trained word, when this condition was administered in the second block (see below for *t* tests).
+
+```{r}
+#Select the data.
+aux <- subset(corrplfe2, condition == "Control")
+
+#Run the analysis
+a2still <- aov_car(mean ~ word*order + Error(Id/word) + order, 
+                   data = aux)
+
+#Display the results
+summary(a2still)
+eta_sq(a2still, partial = TRUE)
+remove(aux)
+```
+
+
+#### Comparisons by block (Control)
+
+Control condition: the data were compared separately within each block using paired-samples t tests.
+
+**Control condition in block 1**
+
+```{r echo=FALSE}
+aux <- subset(corrplfe2, order == "Experimental second" & condition == "Control")
+t.test(mean ~ word, data = aux, paired = TRUE)
+cohensD(mean ~ word, data = aux, method = "paired")
+rm(aux)
+```
+
+**Control condition in block 2**
+
+```{r echo=FALSE}
+aux <- subset(corrplfe2, order == "Experimental first" & condition == "Control")
+t.test(mean ~ word, data = aux, paired = TRUE)
+cohensD(mean ~ word, data = aux, method = "paired")
+rm(aux)
+```
+
+#### Comparisons to chance
+
+##### Experimental condition
+
+Tests were performed on the data collapsed across blocks.
+
+Familiar words.
+```{r echo=FALSE}
+aux <- corrplfe2 %>% filter(condition == "Experimental" & word == "Familiar word")
+t.test(aux$mean, mu = 0, alternative = "two.sided")
+cohensD(aux$mean, mu = 0)
+rm(aux)
+```
+
+Novel words.
+```{r echo=FALSE}
+aux <- corrplfe2 %>% filter(condition == "Experimental" & word == "Novel word")
+t.test(aux$mean, mu = 0, alternative = "two.sided")
+cohensD(aux$mean, mu = 0)
+rm(aux)
+```
+
+##### Control condition
+
+Tests were performed on the data split by block order. 
+
+###### Control in block 1
+
+Familiar word.
+```{r echo=FALSE}
+aux <- corrplfe2 %>% 
+  filter(order == "Experimental second" & condition == "Control" &word == "Familiar word")
+t.test(aux$mean, mu = 0, alternative = "two.sided")
+cohensD(aux$mean, mu = 0)
+rm(aux)
+```
+
+Novel word.
+```{r echo=FALSE}
+aux <- corrplfe2 %>% 
+  filter(order == "Experimental second" & condition == "Control" & word == "Novel word")
+t.test(aux$mean, mu = 0, alternative = "two.sided")
+cohensD(aux$mean, mu = 0)
+rm(aux)
+```
+
+###### Control in block 2
+
+Familiar word.
+```{r echo=FALSE}
+aux <- corrplfe2 %>% 
+  filter(order == "Experimental first" & condition == "Control" & word == "Familiar word")
+t.test(aux$mean, mu = 0, alternative = "two.sided")
+cohensD(aux$mean, mu = 0)
+rm(aux)
+```
+
+Novel word.
+```{r echo=FALSE}
+aux <- corrplfe2 %>% 
+  filter(order == "Experimental first" & condition == "Control" & word == "Novel word")
+t.test(aux$mean, mu = 0, alternative = "two.sided")
+cohensD(aux$mean, mu = 0)
+rm(aux)
+```
+
+### Figures
+
+```{r echo=FALSE}
+corrplfe2$condition <- factor(corrplfe2$condition, levels = c("Experimental", "Control"))
+corrplfe2$id <- factor(corrplfe2$Id)
+
+plotboxe2 <- ggplot(data = corrplfe2,aes(x=word, y=mean, color=word, fill=word)) +
+  theme_light() +
+          theme(strip.text = element_text(size = 20),
+                plot.title = element_text(size = 24),
+                panel.grid.minor.y = element_blank(),
+                panel.grid.major.x = element_blank(),
+                legend.position="none",
+                axis.text=element_text(size=20),
+                axis.title.y = element_blank(),
+                axis.title.x = element_blank(),
+                axis.text.x = element_blank(),
+                axis.ticks.x = element_blank()) +
+  geom_hline(yintercept = 0, size = .55) +
+  geom_boxplot(color="black", width = .4, alpha=1, outlier.shape = NA, lwd = .25) +
+  geom_jitter(color="gray40",position = position_jitterdodge(dodge.width = .05, jitter.width = .15), size = 1.15) +
+  geom_line(aes(group=Id), size = .2, color = "grey") +
+  stat_summary(fun.data = mean_se, fill="yellow", color = "black", shape=23, size = 1.45) +
+  scale_color_npg() +
+  scale_fill_npg() +
+  #scale_fill_manual(values = c("#F39B7FB2","#4DBBD5B2")) +
+  scale_y_continuous(name="corrPLF", limits=c(-.55, .8)) +
+  facet_grid(. ~ condition, switch =  "both") +
+  theme(
+    strip.background = element_rect(fill="white"),
+    strip.text = element_text(size=20, 
+                              color="grey30", margin = margin(.1,0,0,0, "cm"))) +
+  ggtitle("Experiment 2")
+
+plotboxe2
+```
+
+Control split by order.
+
+```{r echo=FALSE}
+
+aux <- corrplfe2 %>% filter(condition == "Control")
+
+aux$order <- factor(aux$order, 
+                    levels = c("Experimental second", "Experimental first"),
+                    labels = c("Control in block 1","Control in block 2")
+                    )
+
+aux$id <- factor(aux$Id)
+
+plotboxe2order <- ggplot(data = aux,aes(x=word, y=mean, fill = word)) +
+  theme_light() +
+          theme(strip.text = element_text(size = 20),
+                plot.title = element_text(size = 24),
+                plot.subtitle = element_text(size = 16),
+                panel.grid.minor.y = element_blank(),
+                panel.grid.major.x = element_blank(),
+                legend.position="none",
+                axis.text=element_text(size=20),
+                axis.title.y = element_blank(),
+                axis.title.x = element_blank(),
+                axis.text.x = element_text(size = 20, color = "white"),
+                axis.ticks.x = element_blank()) +
+  geom_hline(yintercept = 0) +
+  geom_boxplot(color="black", width = .4, alpha=.5, outlier.shape = NA, lwd = .25) +
+  geom_jitter(color="gray40",position = position_jitterdodge(dodge.width = .05, jitter.width = .1), size = 1.15) +
+  geom_line(aes(group=Id), size = .2, color = "grey") +
+  stat_summary(fun.data = mean_se, fill="yellow", color = "black", shape=23, size = 1.45) +
+  scale_color_npg() +
+  scale_fill_npg() +
+  scale_y_continuous(name="corrPLF", limits=c(-.55, .55), breaks = c(-.5,0,.5)) +
+  facet_grid(. ~ order) +
+  theme(
+    strip.background = element_rect(fill="grey90"),
+    strip.text = element_text(size=18, 
+                              color="black", margin = margin(.15,.15,.15,.15, "cm"))) +
+  ggtitle(label = "Experiment 2", subtitle = "Control condition data split by block order")
+
+plotboxe2order
+```
+
+```{r}
+g_legend<-function(a.gplot){
+  tmp <- ggplot_gtable(ggplot_build(a.gplot))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)}
+
+legendaux <- ggplot(data = corrplfe2,aes(x=word, y=mean, fill = word)) +
+  theme_light() +
+          theme(legend.position="bottom",
+                legend.text = element_text(size = 20),
+                legend.title = element_text(size = 20)) +
+  geom_hline(yintercept = 0) +
+  geom_boxplot(color="black", width = .45, alpha=1, outlier.shape = NA, lwd = .25) 
+
+mylegend <-g_legend(legendaux)
+```
+
+
+###Summary figures
+
+```{r}
+fig <- ggarrange(plotboxe1,NULL,plotboxe2,NULL,plotboxe2order,mylegend, nrow = 6,
+                 heights = c(1,.05,1,.05,1,.1))
+
+annotate_figure(fig,
+                left = text_grob("corrPLF", color = "black", rot = 90,
+                                 face = "bold", size = 20))
+
+ggsave("plots/figure3.png", plot = last_plot(), width = 16, height = 40, units = c("cm"))
+```
+
+
+# Exploratory graphical analysis
+
+## Experiment 1
+
+Experimental condition.
+
+```{r echo=FALSE}
+aux <- dataTestSummary %>% 
+  subset(experiment == "Experiment 1" & condition == "Experimental")
+
+e1s <- aux %>%
+  group_by(word, dv) %>%
+  get_summary_stats(mean,type = "mean_se")
+
+
+pe1pointproportion <- ggplot(data = e1s,aes(x=word, y=mean, fill=dv)) +
+  theme_light() +
+          theme(strip.text = element_text(size = 12),
+                panel.grid.major.y = element_line(colour="gray75"),
+                panel.grid.major.x = element_blank(),
+                legend.position="none",
+                axis.text=element_text(size=14),
+                axis.title.y=element_blank(),
+                axis.title.x = element_blank(),
+                ) +
+  geom_jitter(data = aux, aes(x = word, y = mean, color=dv),
+              position = position_jitterdodge(jitter.width = 0.25,
+                                              jitter.height = 0,
+                                              dodge.width = 0.4,), size = .5) +
+  geom_violin(data = aux, aes(x = word, y = mean), 
+               width = .4, alpha = .25, outlier.shape = NA) +
+  geom_hline(yintercept = .5, color = "black", size = .35, linetype = "dashed") +
+  geom_hline(yintercept = 0, size = .35) +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se),
+                width=0,position=position_dodge(.4), color = "blue") +
+  geom_point(color = "blue", position=position_dodge(.4),size = 2.5, shape = 15) +
+  scale_fill_manual(values = c("gray60","white","black")) +
+  scale_color_manual(values = c("grey60","grey70","black")) +
+  scale_y_continuous(limits=c(-.6, 1)) +
+  ggtitle(label = "Experiment 1", subtitle = "Experimental condition")
+
+pe1pointproportion
+```
+
+Control condition.
+
+```{r echo=FALSE}
+aux <- dataTestSummary %>% 
+  subset(experiment == "Experiment 1" & condition == "Control")
+
+plotdata <- aux %>%
+  group_by(word, condition, dv) %>%
+  get_summary_stats(mean,type = "mean_se")
+  
+e1s$condition <- factor(plotdata$condition)
+
+pe1control <- ggplot(data = plotdata,aes(x=word, y=mean, fill=dv)) +
+   theme_light() +
+          theme(strip.text = element_text(size = 12),
+                panel.grid.major.y = element_line(colour="gray75"),
+                panel.grid.major.x = element_blank(),
+                legend.position="none",
+                axis.text=element_text(size=14),
+                axis.title.y=element_blank(),
+                axis.title.x = element_blank()) +
+  geom_jitter(data = aux, aes(x = word, y = mean, color=dv),
+              position = position_jitterdodge(jitter.width = 0.25,
+                                              jitter.height = 0,
+                                              dodge.width = 0.4,), size = .5) +
+  geom_violin(data = aux, aes(x = word, y = mean), 
+               width = .4, alpha = .25, outlier.shape = NA) +
+  geom_hline(yintercept = .5, color = "black", size = .35, linetype = "dashed") +
+  geom_hline(yintercept = 0, size = .35) +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se),
+                width=0,position=position_dodge(.4), color = "blue") +
+  geom_point(color = "blue", position=position_dodge(.4),size = 2.5, shape = 15) +
+  scale_fill_manual(values = c("gray60","white","black")) +
+  scale_color_manual(values = c("grey60","grey70","black")) +
+  scale_y_continuous(limits=c(-.6, 1)) +
+  ggtitle(label = " ", subtitle = "Control condition")
+  
+pe1control
+```
+
+## Experiment 2
+
+```{r include=FALSE}
+plotdata <- dataTestSummary %>% 
+  filter(experiment == "Experiment 2" & condition == "Experimental") 
+
+aux <- plotdata%>%
+  group_by(word, dv) %>%
+  get_summary_stats(mean,type = "mean_se")
+
+pe2pointproportion <- ggplot(data = aux,aes(x=word, y=mean, fill=dv)) +
+   theme_light() +
+          theme(strip.text = element_text(size = 12),
+                panel.grid.major.y = element_line(colour="gray75"),
+                panel.grid.major.x = element_blank(),
+                legend.position="none",
+                axis.text=element_text(size=14),
+                axis.title.y=element_blank(),
+                axis.title.x = element_blank(),
+                ) +
+  geom_jitter(data = plotdata, aes(x = word, y = mean, color=dv),
+              position = position_jitterdodge(jitter.width = 0.25,
+                                              jitter.height = 0,
+                                              dodge.width = 0.4,), size = .5) +
+  geom_violin(data = plotdata, aes(x = word, y = mean), 
+               width = .4, alpha = .25, outlier.shape = NA) +
+  geom_hline(yintercept = .5, color = "black", size = .35, linetype = "dashed") +
+  geom_hline(yintercept = 0, size = .35) +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se), width=0,
+                position=position_dodge(.4), color = "blue") +
+  geom_point(color = "blue", position=position_dodge(.4),size = 2.5, shape = 15) +
+  scale_fill_manual(values = c("gray60","white","black")) +
+  scale_color_manual(values = c("grey60","grey70","black")) +
+  scale_y_continuous(limits=c(-.6, 1)) +
+  ggtitle(label = "Experiment 2", subtitle = "Experimental condition")
+  
+pe2pointproportion
+
+rm(aux)
+rm(plotdata)
+```
+
+Control condition.
+
+```{r include=FALSE}
+plotdata <- dataTestSummary %>% 
+  filter(experiment == "Experiment 2" & condition == "Control") 
+
+aux <- plotdata%>%
+  group_by(word, order, dv) %>%
+  get_summary_stats(mean,type = "mean_se")
+
+aux$order <- factor(aux$order, 
+                    levels = c("Experimental second", "Experimental first"),
+                    labels = c("Control in block 1","Control in block 2"))
+
+plotdata$order <- factor(plotdata$order, 
+                    levels = c("Experimental second", "Experimental first"),
+                    labels = c("Control in block 1","Control in block 2"))
+
+pe2controlpoint <- ggplot(data = aux,aes(x=word, y=mean, fill=dv)) +
+  theme_light() +
+          theme(strip.text = element_text(size = 12),
+                panel.grid.major.y = element_line(colour="gray75"),
+                panel.grid.major.x = element_blank(),
+                legend.position="none",
+                axis.text=element_text(size=14),
+                axis.title.y=element_blank(),
+                axis.title.x = element_blank(),
+                ) +
+  geom_jitter(data = plotdata, aes(x = word, y = mean, color=dv),
+              position = position_jitterdodge(jitter.width = 0.25,
+                                              jitter.height = 0,
+                                              dodge.width = 0.4,), size = .5) +
+  geom_violin(data = plotdata, aes(x = word, y = mean), 
+               width = .4, alpha = .25, outlier.shape = NA) +
+  geom_hline(yintercept = .5, color = "black", size = .35, linetype = "dashed") +
+  geom_hline(yintercept = 0, size = .35) +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se),
+                width=0,position=position_dodge(.4), color = "blue") +
+  geom_point(color = "blue", position=position_dodge(.4),size = 2.5, shape = 15) +
+  scale_fill_manual(values = c("gray60","white","black")) +
+  scale_color_manual(values = c("grey60","grey70","black")) +
+  scale_y_continuous(limits=c(-.6, 1)) +
+  ggtitle(label = " ", subtitle = "Control condition") +
+  facet_wrap(. ~ order, labeller = "label_both", switch="both")
+  
+pe2controlpoint
+
+rm(aux)
+rm(plotdata)
+```
+
+
+## Figure
+
+```{r echo=FALSE}
+fig <- ggarrange(
+  ggarrange(pe1pointproportion, pe1control, ncol = 2),
+  NULL,
+  ggarrange(pe2pointproportion, pe2controlpoint, ncol = 2,
+            common.legend = TRUE, legend = "bottom"),
+  ncol = 1, widths = c(1), heights = c(1,.05,1))
+
+annotate_figure(fig,
+                left = text_grob("Looking at the familiar object",
+                                 color = "black", rot = 90,
+                                 face = "bold", size = 14))
+```
+
+```{r include=FALSE}
+ggsave("plots/figureSM.png", plot = last_plot(), width = 30, height = 20, units = c("cm"))
+```
