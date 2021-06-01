@@ -2,7 +2,7 @@
 
 Project repository for the study:
 
-Pomiechowska, B., Brody, G., Csibra, G., & Gliga, T. (under review). Twelve-month-olds disambiguate new words using mutual-exclusivity inferences
+Pomiechowska, B., Bródy, G., Csibra, G., & Gliga, T. (2021). Twelve-month-olds disambiguate new words using mutual-exclusivity inferences. Cognition, 104691. DOI: https://doi.org/10.1016/j.cognition.2021.104691
 
 ## Respository structure
 
